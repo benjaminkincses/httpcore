@@ -139,6 +139,10 @@ class AsyncHTTP2Connection(AsyncConnectionInterface):
 
         await self._max_streams_semaphore.acquire()
 
+        # `None` until a stream is actually allocated below. Failing before
+        # that point, for example being cancelled while waiting on
+        # `_send_lock`, leaves no stream-specific state to tear down.
+        stream_id: int | None = None
         try:
             # The send path mutates the shared `h2` state machine, which is
             # not safe for concurrent use, so stream ID allocation and the
@@ -184,6 +188,12 @@ class AsyncHTTP2Connection(AsyncConnectionInterface):
             self._request_count -= 1
             raise ConnectionNotAvailable()
         except BaseException as exc:  # noqa: PIE786
+            if stream_id is None:
+                # No stream was allocated, so there is nothing
+                # stream-specific to clean up. Hand the stream permit back
+                # and re-raise the original error.
+                await self._max_streams_semaphore.release()
+                raise exc
             with AsyncShieldCancellation():
                 kwargs = {"stream_id": stream_id}
                 async with Trace("response_closed", logger, request, kwargs):

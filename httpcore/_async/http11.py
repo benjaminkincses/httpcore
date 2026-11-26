@@ -154,7 +154,7 @@ class AsyncHTTP11Connection(AsyncConnectionInterface):
         timeout = timeouts.get("write", None)
 
         assert isinstance(request.stream, typing.AsyncIterable)
-        body = request.stream.__aiter__()
+        body = aiter(request.stream)
         try:
             async for chunk in body:
                 event = h11.Data(data=chunk)
